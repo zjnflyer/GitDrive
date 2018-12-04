@@ -97,12 +97,15 @@ void ComputeInitFrenetState(const PathPoint& matched_point,
 
 Status LatticePlanner::Plan(const TrajectoryPoint& planning_start_point,
                             Frame* frame) {
+
+  AINFO << "------------- Lattice Planner Started -------------";
+
   std::size_t success_line_count = 0;
   std::size_t index = 0;
   for (auto& reference_line_info : frame->reference_line_info()) {
     if (index != 0) {
       reference_line_info.SetPriorityCost(
-          FLAGS_cost_non_priority_reference_line);
+          config_.cost_non_priority_ref_line());
     } else {
       reference_line_info.SetPriorityCost(0.0);
     }
@@ -123,8 +126,11 @@ Status LatticePlanner::Plan(const TrajectoryPoint& planning_start_point,
   }
 
   if (success_line_count > 0) {
+    AINFO << "------------- Lattice Planner Ended -------------";
     return Status::OK();
   }
+  
+  AINFO << "------------- Lattice Planner Ended -------------";
   return Status(ErrorCode::PLANNING_ERROR,
                 "Failed to plan on any reference line.");
 }
@@ -141,6 +147,8 @@ Status LatticePlanner::PlanOnReferenceLine(
   ADEBUG << "Number of planning cycles: " << num_planning_cycles << " "
          << num_planning_succeeded_cycles;
   ++num_planning_cycles;
+
+  AINFO << "*** *** *** Plan on new reference line *** *** ***";
 
   reference_line_info->set_is_on_reference_line();
   // 1. obtain a reference line and transform it to the PathPoint format.
@@ -177,25 +185,33 @@ Status LatticePlanner::PlanOnReferenceLine(
   double speed_limit =
       reference_line_info->reference_line().GetSpeedLimitFromS(init_s[0]);
   reference_line_info->SetCruiseSpeed(speed_limit);
+  AINFO << "Current speed limit = " << speed_limit;
 
   PlanningTarget planning_target = reference_line_info->planning_target();
   if (planning_target.has_stop_point()) {
     ADEBUG << "Planning target stop s: " << planning_target.stop_point().s()
-           << "Current ego s: " << init_s[0];
+           << " Current ego s: " << init_s[0];
+    AINFO << "Planning target stop s: " << planning_target.stop_point().s()
+           << " Current ego s: " << init_s[0];
   }
+
+  // JZ Added. use path_decision information in trajectory_generator and end_condition_sampler
+  auto path_decision = reference_line_info->path_decision();
 
   ADEBUG << "Decision_Time = " << (Clock::NowInSeconds() - current_time) * 1000;
   current_time = Clock::NowInSeconds();
 
   // 5. generate 1d trajectory bundle for longitudinal and lateral respectively.
   Trajectory1dGenerator trajectory1d_generator(
-      init_s, init_d, ptr_path_time_graph, ptr_prediction_querier);
+      init_s, init_d, path_decision, ptr_path_time_graph, ptr_prediction_querier, config_);
   std::vector<std::shared_ptr<Curve1d>> lon_trajectory1d_bundle;
   std::vector<std::shared_ptr<Curve1d>> lat_trajectory1d_bundle;
   trajectory1d_generator.GenerateTrajectoryBundles(
       planning_target, &lon_trajectory1d_bundle, &lat_trajectory1d_bundle);
 
   ADEBUG << "Trajectory_Generation_Time = "
+         << (Clock::NowInSeconds() - current_time) * 1000;
+  AINFO << "Trajectory_Generation_Time = "
          << (Clock::NowInSeconds() - current_time) * 1000;
   current_time = Clock::NowInSeconds();
 
@@ -205,9 +221,11 @@ Status LatticePlanner::PlanOnReferenceLine(
   //   and sort them according to the cost.
   TrajectoryEvaluator trajectory_evaluator(
       init_s, planning_target, lon_trajectory1d_bundle, lat_trajectory1d_bundle,
-      ptr_path_time_graph, ptr_reference_line);
+      ptr_path_time_graph, ptr_reference_line, config_);
 
   ADEBUG << "Trajectory_Evaluator_Construction_Time = "
+         << (Clock::NowInSeconds() - current_time) * 1000;
+  AINFO << "Trajectory_Evaluator_Construction_Time = "
          << (Clock::NowInSeconds() - current_time) * 1000;
   current_time = Clock::NowInSeconds();
 
@@ -215,6 +233,12 @@ Status LatticePlanner::PlanOnReferenceLine(
          << trajectory_evaluator.num_of_trajectory_pairs()
          << "  number_lon_traj = " << lon_trajectory1d_bundle.size()
          << "  number_lat_traj = " << lat_trajectory1d_bundle.size();
+
+  AINFO << "number of trajectory pairs = "
+         << trajectory_evaluator.num_of_trajectory_pairs()
+         << "  number_lon_traj = " << lon_trajectory1d_bundle.size()
+         << "  number_lat_traj = " << lat_trajectory1d_bundle.size();
+  
 
   // Get instance of collision checker and constraint checker
   CollisionChecker collision_checker(frame->obstacles(), init_s[0], init_d[0],
@@ -237,11 +261,12 @@ Status LatticePlanner::PlanOnReferenceLine(
   std::size_t num_lattice_traj = 0;
 
   while (trajectory_evaluator.has_more_trajectory_pairs()) {
-    double trajectory_pair_cost =
-        trajectory_evaluator.top_trajectory_pair_cost();
-    // For auto tuning
+      double trajectory_pair_cost =
+          trajectory_evaluator.top_trajectory_pair_cost();
+    // For auto tuning or printing cost components
     std::vector<double> trajectory_pair_cost_components;
-    if (FLAGS_enable_auto_tuning) {
+    bool enable_cost_component_print = config_.lattice_enable_cost_component_record();
+    if (FLAGS_enable_auto_tuning || enable_cost_component_print) {
       trajectory_pair_cost_components =
           trajectory_evaluator.top_trajectory_pair_component_cost();
       ADEBUG << "TrajectoryPairComponentCost";
@@ -299,6 +324,7 @@ Status LatticePlanner::PlanOnReferenceLine(
     // put combine trajectory into debug data
     const auto& combined_trajectory_points =
         combined_trajectory.trajectory_points();
+    AINFO << "Trajectory size before stitching = " << combined_trajectory.NumOfPoints();
     num_lattice_traj += 1;
     reference_line_info->SetTrajectory(combined_trajectory);
     reference_line_info->SetCost(reference_line_info->PriorityCost() +
@@ -346,9 +372,16 @@ Status LatticePlanner::PlanOnReferenceLine(
           auto_tuning_data);
     }
 
+    // Auto Tuning End
+
     // Print the chosen end condition and start condition
     ADEBUG << "Starting Lon. State: s = " << init_s[0] << " ds = " << init_s[1]
            << " dds = " << init_s[2];
+    AINFO << "Starting Lon. State: S = " << init_s[0] << " dS = " << init_s[1]
+           << " ddS = " << init_s[2];
+    AINFO << "Starting Lat. State: L = " << init_d[0] << " dL = " << init_d[1]
+           << " ddL = " << init_d[2];
+
     // cast
     auto lattice_traj_ptr =
         std::dynamic_pointer_cast<LatticeTrajectory1d>(trajectory_pair.first);
@@ -356,10 +389,30 @@ Status LatticePlanner::PlanOnReferenceLine(
       ADEBUG << "Dynamically casting trajectory1d ptr. failed.";
     }
 
+    auto lattice_traj_ptr_lateral = 
+        std::dynamic_pointer_cast<LatticeTrajectory1d>(trajectory_pair.second);
+    if (!lattice_traj_ptr) {
+      AINFO << "Dynamically casting trajectory1d ptr. failed.";
+    }
+
+
     if (lattice_traj_ptr->has_target_position()) {
       ADEBUG << "Ending Lon. State s = " << lattice_traj_ptr->target_position()
              << " ds = " << lattice_traj_ptr->target_velocity()
              << " t = " << lattice_traj_ptr->target_time();
+      AINFO  << "Ending Lon. State S = " << lattice_traj_ptr->target_position()
+             << " dS = " << lattice_traj_ptr->target_velocity()
+             << " t = " << lattice_traj_ptr->target_time();
+    } else if (lattice_traj_ptr->has_target_velocity()) {
+      AINFO  << "Ending Lon. State S = cruising"
+             << " dS = " << lattice_traj_ptr->target_velocity()
+             << " t = " << lattice_traj_ptr->target_time();
+    }
+
+    if (lattice_traj_ptr_lateral->has_target_position()) {
+       AINFO << "Ending Lat. State L = " << lattice_traj_ptr_lateral->target_position()
+             << " dL = " << lattice_traj_ptr_lateral->target_velocity()
+             << " S = " << lattice_traj_ptr_lateral->target_time();     
     }
 
     ADEBUG << "InputPose";
@@ -372,10 +425,28 @@ Status LatticePlanner::PlanOnReferenceLine(
     ADEBUG << "Reference_line_priority_cost = "
            << reference_line_info->PriorityCost();
     ADEBUG << "Total_Trajectory_Cost = " << trajectory_pair_cost;
+
+    AINFO << "Reference_line_priority_cost = "
+           << reference_line_info->PriorityCost();
+    AINFO << "Trajectory_Pair_Cost = " << trajectory_pair_cost;
+
+    if (enable_cost_component_print) {
+      AINFO << "  TrajectoryPairComponentCost";
+      AINFO << "    lon_travel_cost = " << trajectory_pair_cost_components[0] << " * weight [" << config_.lattice_weight_lon_objective() << "]";
+      AINFO << "    lon_jerk_cost = " << trajectory_pair_cost_components[1] << " * weight [" << config_.lattice_weight_lon_jerk() << "]";
+      AINFO << "    lon_collision_cost = " << trajectory_pair_cost_components[2] << " * weight [" << config_.lattice_weight_lon_collision() << "]";
+      AINFO << "    lateral_offset_cost = " << trajectory_pair_cost_components[3] << " * weight [" << config_.lattice_weight_lat_offset() << "]";
+      AINFO << "    centripedal_cost = " << trajectory_pair_cost_components[4] << " * weight [" << config_.lattice_weight_centripetal_acceleration() << "]";
+      AINFO << "    lateral_comfort_cost = " << trajectory_pair_cost_components[5] << " * weight [" << config_.lattice_weight_lat_comfort() << "]";
+    }
+
     ADEBUG << "OutputTrajectory";
     for (uint i = 0; i < 10; ++i) {
       ADEBUG << combined_trajectory_points[i].ShortDebugString();
     }
+
+    auto last_point_i = combined_trajectory_points.size() - 1;
+    AINFO << "Print last trajectory point: " << combined_trajectory_points[last_point_i].ShortDebugString();
 
     break;
     /*
@@ -403,15 +474,27 @@ Status LatticePlanner::PlanOnReferenceLine(
   ADEBUG << "Total_Lattice_Planning_Frame_Time = "
          << (Clock::NowInSeconds() - start_time) * 1000;
 
+
+  AINFO << "1d trajectory not valid for constraint ["
+         << constraint_failure_count << "] times";
+  AINFO << "Combined trajectory not valid for ["
+         << combined_constraint_failure_count << "] times";
+  AINFO << "Trajectory not valid for collision [" << collision_failure_count
+         << "] times";
+  AINFO << "Total_Lattice_Planning_Frame_Time (ms) = "
+         << (Clock::NowInSeconds() - start_time) * 1000;
+
+
   if (num_lattice_traj > 0) {
     ADEBUG << "Planning succeeded";
+    AINFO << "Planning succeeded, num of lattice traj = " << num_lattice_traj;
     num_planning_succeeded_cycles += 1;
     reference_line_info->SetDrivable(true);
     return Status::OK();
   } else {
     AERROR << "Planning failed";
     if (FLAGS_enable_backup_trajectory) {
-      AERROR << "Use backup trajectory";
+      AERROR << "Planning failed, use backup trajectory";
       BackupTrajectoryGenerator backup_trajectory_generator(
           init_s, init_d, planning_init_point.relative_time(),
           std::make_shared<CollisionChecker>(collision_checker),

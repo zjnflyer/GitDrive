@@ -42,6 +42,7 @@ class LatticePlanner : public PlannerWithReferenceLine {
   std::string Name() override { return "LATTICE"; }
 
   common::Status Init(const PlanningConfig& config) override {
+    config_ = config;
     return common::Status::OK();
   }
 
@@ -67,7 +68,7 @@ class LatticePlanner : public PlannerWithReferenceLine {
 
  private:
   DiscretizedTrajectory GetFutureTrajectory() const;
-
+  PlanningConfig config_;
   bool MapFutureTrajectoryToSL(
       const DiscretizedTrajectory& future_trajectory,
       const std::vector<common::PathPoint>& discretized_reference_line,
