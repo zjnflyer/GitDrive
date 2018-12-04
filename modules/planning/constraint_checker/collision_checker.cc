@@ -91,19 +91,23 @@ void CollisionChecker::BuildPredictedEnvironment(
   CHECK(predicted_bounding_rectangles_.empty());
 
   // If the ego vehicle is in lane,
-  // then, ignore all obstacles from the same lane.
+  // then, ignore all obstacles behind or out of PT graph
   bool ego_vehicle_in_lane = IsEgoVehicleInLane(ego_vehicle_s, ego_vehicle_d);
   std::vector<const Obstacle*> obstacles_considered;
   for (const Obstacle* obstacle : obstacles) {
     if (obstacle->IsVirtual()) {
       continue;
     }
+
+    // JZ Added temp, test collision checking for all obstacles all the time
+    /*
     if (ego_vehicle_in_lane &&
         (IsObstacleBehindEgoVehicle(obstacle, ego_vehicle_s,
                                     discretized_reference_line) ||
          !ptr_path_time_graph_->IsObstacleInGraph(obstacle->Id()))) {
       continue;
     }
+    */
 
     obstacles_considered.push_back(obstacle);
   }

@@ -49,6 +49,10 @@ bool ConstraintChecker1d::IsValidLongitudinalTrajectory(
       return false;
     }
 
+// JZ Added: somehow jerk of lon_traj from GenerateSpeedProfilesForStopping is super big if starting from standstill, 
+// which causes all of them got filtered out by exceeding the jerk limit here
+// maybe that's something we want...
+
     double j = lon_trajectory.Evaluate(3, t);
     if (!fuzzy_within(j, FLAGS_longitudinal_jerk_lower_bound,
                       FLAGS_longitudinal_jerk_upper_bound)) {
