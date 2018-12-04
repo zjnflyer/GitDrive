@@ -1,6 +1,6 @@
 config: {
   rule_id: BACKSIDE_VEHICLE
-  enabled: true
+  enabled: false
   backside_vehicle {
     backside_lane_width: 4.0
   }
@@ -8,7 +8,7 @@ config: {
 
 config: {
   rule_id: CHANGE_LANE
-  enabled: true
+  enabled: false
   change_lane {
     min_overtake_distance: 10.0
     min_overtake_time: 2.0
@@ -20,7 +20,7 @@ config: {
 
 config: {
   rule_id: CROSSWALK
-  enabled: true
+  enabled: false
   crosswalk {
     stop_distance: 1.0
     max_stop_deceleration: 6.0
@@ -38,7 +38,7 @@ config: {
   rule_id: DESTINATION
   enabled: true
   destination {
-    enable_pull_over: true
+    enable_pull_over: false
     stop_distance: 0.5
     pull_over_plan_distance: 55.00
   }
@@ -49,16 +49,19 @@ config: {
   enabled: true
   front_vehicle {
     enable_side_pass: true
-    side_pass_s_threshold: 15.0
-    side_pass_l_threshold: 1.0
-    side_pass_wait_time: 30.0
-    nudge_l_buffer: 0.5
+    side_pass_s_threshold: 50.0
+    side_pass_l_threshold: 2.0
+    side_pass_wait_time: 0.5
+    nudge_l_buffer: 0.2
+    adc_stop_speed_threshold: 10.0
+    early_stop_buffer: 0.5
+    nudge_speed_coef: 20.0
   }
 }
 
 config: {
   rule_id: KEEP_CLEAR
-  enabled: true
+  enabled: false
   keep_clear {
     enable_keep_clear_zone: true
     enable_junction: false
@@ -68,7 +71,7 @@ config: {
 
 config: {
   rule_id: PULL_OVER
-  enabled: true
+  enabled: false
   pull_over {
     stop_distance: 0.5
     max_stop_speed: 0.2
@@ -94,7 +97,7 @@ config: {
 
 config: {
   rule_id: REROUTING
-  enabled: true
+  enabled: false
   rerouting {
     prepare_rerouting_time: 2.0
     cooldown_time: 3.0
@@ -103,7 +106,7 @@ config: {
 
 config: {
   rule_id: SIGNAL_LIGHT
-  enabled: true
+  enabled: false
   signal_light {
     stop_distance: 1.0
     max_stop_deceleration: 6.0
@@ -121,7 +124,7 @@ config: {
 
 config: {
   rule_id: STOP_SIGN
-  enabled: true
+  enabled: false
   stop_sign {
     stop_distance: 1.0
     min_pass_s_distance: 3.0

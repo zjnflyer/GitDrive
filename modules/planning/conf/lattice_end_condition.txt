@@ -1,0 +1,11 @@
+LatEnd_d1 = 0.0
+LatEnd_d2 = -0.5
+LatEnd_d3 = 0.5
+LatEnd_d4 = -1.0
+LatEnd_d5 = 1.0
+LatEnd_s1 = 10.0
+LatEnd_s2 = 20.0
+LatEnd_s3 = 40.0
+LatEnd_s4 = 60.0
+LatEnd_s5 = 80.0
+LatEnd_s6 = 100.0
