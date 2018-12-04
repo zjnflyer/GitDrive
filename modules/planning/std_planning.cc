@@ -153,6 +153,9 @@ Status StdPlanning::Start() {
 
 void StdPlanning::RunOnce() {
   // snapshot all coming data
+
+  AINFO << "****************************************************************";
+  AINFO << "-------------*** New STD Planning Cycle Started ***-------------";
   AdapterManager::Observe();
 
   const double start_timestamp = Clock::NowInSeconds();
@@ -443,9 +446,19 @@ Status StdPlanning::Plan(
                   .ShortDebugString();
   }
 
+  if (FLAGS_enable_stitch_last_trajectory) {
+    AINFO << "publish trajectory size with stitching = " << last_publishable_trajectory_->NumOfPoints();
+  }
+  else {
+    AINFO << "publish trajectory size w/o stitching = " << last_publishable_trajectory_->NumOfPoints();
+  }
+
   last_publishable_trajectory_->PopulateTrajectoryProtobuf(trajectory_pb);
 
   best_ref_info->ExportEngageAdvice(trajectory_pb->mutable_engage_advice());
+
+  AINFO << "-------------*** STD Planning Cycle Ended ***---------------";
+  AINFO << "************************************************************";
 
   return status;
 }
