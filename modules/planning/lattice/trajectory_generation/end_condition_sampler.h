@@ -28,6 +28,7 @@
 #include <string>
 
 #include "modules/common/configs/vehicle_config_helper.h"
+#include "modules/planning/common/path_decision.h"
 #include "modules/planning/lattice/behavior/feasible_region.h"
 #include "modules/planning/lattice/behavior/path_time_graph.h"
 #include "modules/planning/lattice/behavior/prediction_querier.h"
@@ -43,8 +44,10 @@ class EndConditionSampler {
   EndConditionSampler(
       const std::array<double, 3>& init_s,
       const std::array<double, 3>& init_d,
+      PathDecision* path_decision,
       std::shared_ptr<PathTimeGraph> ptr_path_time_graph,
-      std::shared_ptr<PredictionQuerier> ptr_prediction_querier);
+      std::shared_ptr<PredictionQuerier> ptr_prediction_querier,
+      const PlanningConfig& config);
 
   virtual ~EndConditionSampler() = default;
 
@@ -59,6 +62,8 @@ class EndConditionSampler {
 
   std::vector<std::pair<std::array<double, 3>, double>>
   SampleLonEndConditionsForPathTimePoints() const;
+  
+  void Init(const PlanningConfig& config);
 
  private:
   std::vector<SamplePoint> QueryPathTimeObstacleSamplePoints() const;
@@ -77,8 +82,26 @@ class EndConditionSampler {
   std::array<double, 3> init_s_;
   std::array<double, 3> init_d_;
   FeasibleRegion feasible_region_;
+  PathDecision* path_decision_;
   std::shared_ptr<PathTimeGraph> ptr_path_time_graph_;
   std::shared_ptr<PredictionQuerier> ptr_prediction_querier_;
+
+  //calibration parameters
+  double LatEnd_d1 = 0.0;
+  double LatEnd_d2 = 0.0;
+  double LatEnd_d3 = 0.0;
+  double LatEnd_d4 = 0.0;
+  double LatEnd_d5 = 0.0;
+  double LatEnd_d6 = 0.0;
+  double LatEnd_d7 = 0.0;
+
+  double LatEnd_s1 = 0.0;
+  double LatEnd_s2 = 0.0;
+  double LatEnd_s3 = 0.0;
+  double LatEnd_s4 = 0.0;
+  double LatEnd_s5 = 0.0;
+  double LatEnd_s6 = 0.0;
+
 };
 
 }  // namespace planning

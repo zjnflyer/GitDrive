@@ -43,18 +43,36 @@ typedef std::vector<std::shared_ptr<Curve1d>> Trajectory1DBundle;
 
 Trajectory1dGenerator::Trajectory1dGenerator(
     const State& lon_init_state, const State& lat_init_state,
+    PathDecision* path_decision,
     std::shared_ptr<PathTimeGraph> ptr_path_time_graph,
-    std::shared_ptr<PredictionQuerier> ptr_prediction_querier)
+    std::shared_ptr<PredictionQuerier> ptr_prediction_querier,
+    const PlanningConfig& config)
     : init_lon_state_(lon_init_state),
       init_lat_state_(lat_init_state),
-      end_condition_sampler_(lon_init_state, lat_init_state,
-                             ptr_path_time_graph, ptr_prediction_querier),
-      ptr_path_time_graph_(ptr_path_time_graph) {}
+      end_condition_sampler_(lon_init_state, lat_init_state, path_decision, 
+                             ptr_path_time_graph, ptr_prediction_querier, config),
+      ptr_path_time_graph_(ptr_path_time_graph) {
+        Init(config); // JZ Added - read calibration parameters
+      }
+
+void Trajectory1dGenerator::Init(const PlanningConfig& config) {
+    // flags for turning off certain lon. trajectory generation
+    FLAGS_enable_cruising_trajectory = config.enable_cruising_trajectory();
+    FLAGS_enable_stopping_trajectory = config.enable_stopping_trajectory();
+    FLAGS_enable_pathtime_trajectory = config.enable_pathtime_trajectory();
+
+    // manual overwrite of the speed limit for cruising trajectory generation
+    FLAGS_enable_speed_limit_overwrite = config.enable_speed_limit_overwrite();
+    Speed_limit_overwrite = config.speed_limit_overwrite();
+}
 
 void Trajectory1dGenerator::GenerateTrajectoryBundles(
     const PlanningTarget& planning_target,
     Trajectory1DBundle* ptr_lon_trajectory_bundle,
     Trajectory1DBundle* ptr_lat_trajectory_bundle) {
+  
+  // end_condition_sampler_.ReadLatEnd();
+
   GenerateLongitudinalTrajectoryBundle(planning_target,
                                        ptr_lon_trajectory_bundle);
 
@@ -111,14 +129,22 @@ void Trajectory1dGenerator::GenerateLongitudinalTrajectoryBundle(
     const PlanningTarget& planning_target,
     Trajectory1DBundle* ptr_lon_trajectory_bundle) const {
   // cruising trajectories are planned regardlessly.
-  GenerateSpeedProfilesForCruising(planning_target.cruise_speed(),
-                                   ptr_lon_trajectory_bundle);
+  
 
-  GenerateSpeedProfilesForPathTimeObstacles(ptr_lon_trajectory_bundle);
-
-  if (planning_target.has_stop_point()) {
+  if (planning_target.has_stop_point() && FLAGS_enable_stopping_trajectory) {
     GenerateSpeedProfilesForStopping(planning_target.stop_point().s(),
                                      ptr_lon_trajectory_bundle);
+  }
+
+  if (FLAGS_enable_cruising_trajectory) {
+    if (FLAGS_enable_speed_limit_overwrite) {
+      GenerateSpeedProfilesForCruising(Speed_limit_overwrite,
+                                   ptr_lon_trajectory_bundle);
+    } 
+    else {
+      GenerateSpeedProfilesForCruising(planning_target.cruise_speed(),
+                                   ptr_lon_trajectory_bundle);
+    }
   }
 }
 

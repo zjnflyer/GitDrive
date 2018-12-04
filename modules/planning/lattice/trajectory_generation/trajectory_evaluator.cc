@@ -53,10 +53,12 @@ TrajectoryEvaluator::TrajectoryEvaluator(
     const std::vector<PtrTrajectory1d>& lon_trajectories,
     const std::vector<PtrTrajectory1d>& lat_trajectories,
     std::shared_ptr<PathTimeGraph> path_time_graph,
-    std::shared_ptr<std::vector<PathPoint>> reference_line)
+    std::shared_ptr<std::vector<PathPoint>> reference_line,
+    const PlanningConfig& config)
     : path_time_graph_(path_time_graph),
       reference_line_(reference_line),
       init_s_(init_s) {
+  Init(config); // JZ Added - read calibration parameters
   const double start_time = 0.0;
   const double end_time = FLAGS_trajectory_time_length;
   path_time_intervals_ = path_time_graph_->GetPathBlockingIntervals(
@@ -66,16 +68,28 @@ TrajectoryEvaluator::TrajectoryEvaluator(
 
   // if we have a stop point along the reference line,
   // filter out the lon. trajectories that pass the stop point.
+
+  // JZ Added - "lon_end_s + FLAGS_lattice_stop_buffer > stop_point" will filter out all 
+  // 1d trajectories from GenerateSpeedProfilesForStopping()
+  // Action: changed in SampleLonEndConditionsForStopping: end_s = ref_stop_point - FLAGS_lattice_stop_buffer*10;
+
   double stop_point = std::numeric_limits<double>::max();
   if (planning_target.has_stop_point()) {
     stop_point = planning_target.stop_point().s();
   }
   for (const auto& lon_trajectory : lon_trajectories) {
     double lon_end_s = lon_trajectory->Evaluate(0, end_time);
+    double lon_end_v = lon_trajectory->Evaluate(1, end_time);
     if (init_s[0] < stop_point &&
         lon_end_s + FLAGS_lattice_stop_buffer > stop_point) {
       continue;
-    }
+    } 
+
+    //JZ Added - to prevent SpeedProfileForCruising to creep over stop point
+    if (init_s[0] + FLAGS_lattice_stop_buffer >= stop_point &&
+        lon_end_v > 0) {
+          continue;
+        }
 
     if (!ConstraintChecker1d::IsValidLongitudinalTrajectory(*lon_trajectory)) {
       continue;
@@ -88,11 +102,13 @@ TrajectoryEvaluator::TrajectoryEvaluator(
         continue;
       }
       */
-      if (!FLAGS_enable_auto_tuning) {
+    
+      if (!FLAGS_enable_auto_tuning && !enable_cost_component_record) {
         double cost = Evaluate(planning_target, lon_trajectory, lat_trajectory);
         cost_queue_.emplace(Trajectory1dPair(lon_trajectory, lat_trajectory),
                             cost);
-      } else {
+      }
+      else {
         std::vector<double> cost_components;
         double cost = Evaluate(planning_target, lon_trajectory, lat_trajectory,
                                &cost_components);
@@ -102,7 +118,7 @@ TrajectoryEvaluator::TrajectoryEvaluator(
       }
     }
   }
-  if (!FLAGS_enable_auto_tuning) {
+  if (!FLAGS_enable_auto_tuning && enable_cost_component_record) {
     ADEBUG << "Number of valid 1d trajectory pairs: " << cost_queue_.size();
   } else {
     ADEBUG << "Number of valid 1d trajectory pairs: "
@@ -110,8 +126,19 @@ TrajectoryEvaluator::TrajectoryEvaluator(
   }
 }
 
+void TrajectoryEvaluator::Init(const PlanningConfig& config) {
+  weight_lon_objective = config.lattice_weight_lon_objective();
+  weight_lon_jerk = config.lattice_weight_lon_jerk();
+  weight_lon_collision = config.lattice_weight_lon_collision();
+  weight_centripetal_acceleration = config.lattice_weight_centripetal_acceleration();
+  weight_lat_offset = config.lattice_weight_lat_offset();
+  weight_lat_comfort = config.lattice_weight_lat_comfort();
+
+  enable_cost_component_record = config.lattice_enable_cost_component_record();
+}
+
 bool TrajectoryEvaluator::has_more_trajectory_pairs() const {
-  if (!FLAGS_enable_auto_tuning) {
+  if (!FLAGS_enable_auto_tuning && !enable_cost_component_record) {
     return !cost_queue_.empty();
   } else {
     return !cost_queue_with_components_.empty();
@@ -119,7 +146,7 @@ bool TrajectoryEvaluator::has_more_trajectory_pairs() const {
 }
 
 std::size_t TrajectoryEvaluator::num_of_trajectory_pairs() const {
-  if (!FLAGS_enable_auto_tuning) {
+  if (!FLAGS_enable_auto_tuning && !enable_cost_component_record) {
     return cost_queue_.size();
   } else {
     return cost_queue_with_components_.size();
@@ -129,7 +156,7 @@ std::size_t TrajectoryEvaluator::num_of_trajectory_pairs() const {
 std::pair<PtrTrajectory1d, PtrTrajectory1d>
 TrajectoryEvaluator::next_top_trajectory_pair() {
   CHECK(has_more_trajectory_pairs() == true);
-  if (!FLAGS_enable_auto_tuning) {
+  if (!FLAGS_enable_auto_tuning && !enable_cost_component_record) {
     auto top = cost_queue_.top();
     cost_queue_.pop();
     return top.first;
@@ -141,7 +168,7 @@ TrajectoryEvaluator::next_top_trajectory_pair() {
 }
 
 double TrajectoryEvaluator::top_trajectory_pair_cost() const {
-  if (!FLAGS_enable_auto_tuning) {
+  if (!FLAGS_enable_auto_tuning && !enable_cost_component_record) {
     return cost_queue_.top().second;
   } else {
     return cost_queue_with_components_.top().second.second;
@@ -150,7 +177,7 @@ double TrajectoryEvaluator::top_trajectory_pair_cost() const {
 
 std::vector<double> TrajectoryEvaluator::top_trajectory_pair_component_cost()
     const {
-  CHECK(FLAGS_enable_auto_tuning);
+  CHECK(FLAGS_enable_auto_tuning || enable_cost_component_record);
   return cost_queue_with_components_.top().second.first;
 }
 
@@ -196,14 +223,19 @@ double TrajectoryEvaluator::Evaluate(
     cost_components->emplace_back(lon_jerk_cost);
     cost_components->emplace_back(lon_collision_cost);
     cost_components->emplace_back(lat_offset_cost);
+    // JZ Added
+    if (enable_cost_component_record) {
+      cost_components->emplace_back(centripetal_acc_cost);
+      cost_components->emplace_back(lat_comfort_cost);
+    }
   }
 
-  return lon_objective_cost * FLAGS_weight_lon_objective +
-         lon_jerk_cost * FLAGS_weight_lon_jerk +
-         lon_collision_cost * FLAGS_weight_lon_collision +
-         centripetal_acc_cost * FLAGS_weight_centripetal_acceleration +
-         lat_offset_cost * FLAGS_weight_lat_offset +
-         lat_comfort_cost * FLAGS_weight_lat_comfort;
+  return lon_objective_cost * weight_lon_objective +
+         lon_jerk_cost * weight_lon_jerk +
+         lon_collision_cost * weight_lon_collision +
+         centripetal_acc_cost * weight_centripetal_acceleration +
+         lat_offset_cost * weight_lat_offset +
+         lat_comfort_cost * weight_lat_comfort;
 }
 
 double TrajectoryEvaluator::EvaluateDiscreteTrajectory(
@@ -228,12 +260,12 @@ double TrajectoryEvaluator::EvaluateDiscreteTrajectory(
   cost_components->emplace_back(lon_objective_cost);
   cost_components->emplace_back(centripetal_acc_cost);
 
-  return lon_objective_cost * FLAGS_weight_lon_objective +
-         lon_comfort_cost * FLAGS_weight_lon_jerk +
-         lon_collision_cost * FLAGS_weight_lon_collision +
-         centripetal_acc_cost * FLAGS_weight_centripetal_acceleration +
-         lat_offset_cost * FLAGS_weight_lat_offset +
-         lat_comfort_cost * FLAGS_weight_lat_comfort;
+  return lon_objective_cost * weight_lon_objective +
+         lon_comfort_cost * weight_lon_jerk +
+         lon_collision_cost * weight_lon_collision +
+         centripetal_acc_cost * weight_centripetal_acceleration +
+         lat_offset_cost * weight_lat_offset +
+         lat_comfort_cost * weight_lat_comfort;
 }
 
 double TrajectoryEvaluator::LatOffsetCost(
@@ -282,15 +314,19 @@ double TrajectoryEvaluator::LatComfortCost(
     const PtrTrajectory1d& lon_trajectory,
     const PtrTrajectory1d& lat_trajectory) const {
   double max_cost = 0.0;
+  double max_cost_2 = 0.0;
+  double s0 = lon_trajectory->Evaluate(0, 0.0);
   for (double t = 0.0; t < FLAGS_trajectory_time_length;
        t += FLAGS_trajectory_time_resolution) {
     double s = lon_trajectory->Evaluate(0, t);
     double s_dot = lon_trajectory->Evaluate(1, t);
     double s_dotdot = lon_trajectory->Evaluate(2, t);
-    double l_prime = lat_trajectory->Evaluate(1, s);
-    double l_primeprime = lat_trajectory->Evaluate(2, s);
+    double l_prime = lat_trajectory->Evaluate(1, s-s0);
+    double l_primeprime = lat_trajectory->Evaluate(2, s-s0);
     double cost = l_primeprime * s_dot * s_dot + l_prime * s_dotdot;
+    double cost_2 = l_primeprime * s_dot * s_dot;
     max_cost = std::max(max_cost, std::fabs(cost));
+    max_cost_2 = std::max(max_cost_2, cost_2);
   }
   return max_cost;
 }
@@ -302,6 +338,7 @@ double TrajectoryEvaluator::LatComfortCost(
   }
   double dt = FLAGS_trajectory_time_resolution;
   double max_cost = 0.0;
+  double max_cost_2 = 0.0;
   for (std::size_t i = 1; i + 1 < sl_points.size(); ++i) {
     double s_dot = (sl_points[i + 1].s() - sl_points[i].s()) / dt;
     double s_dotdot =
@@ -310,7 +347,9 @@ double TrajectoryEvaluator::LatComfortCost(
     double l_prime = sl_points[i].dl();
     double l_primeprime = sl_points[i].ddl();
     double cost = l_primeprime * s_dot * s_dot + l_prime * s_dotdot;
+    double cost_2 = l_primeprime * s_dot * s_dot;
     max_cost = std::max(max_cost, std::fabs(cost));
+    max_cost_2 = std::max(max_cost_2, cost_2);
   }
   return max_cost;
 }

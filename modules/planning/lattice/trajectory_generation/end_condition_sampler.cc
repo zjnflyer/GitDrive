@@ -23,8 +23,15 @@
 #include <algorithm>
 #include <utility>
 
+#include <fstream>
+#include <iostream>
+
 #include "modules/common/log.h"
 #include "modules/planning/common/planning_gflags.h"
+#include "modules/planning/common/planning_context.h"
+
+
+using namespace std;
 
 namespace apollo {
 namespace planning {
@@ -34,25 +41,85 @@ using Condition = std::pair<State, double>;
 
 EndConditionSampler::EndConditionSampler(
     const State& init_s, const State& init_d,
+    PathDecision* path_decision,
     std::shared_ptr<PathTimeGraph> ptr_path_time_graph,
-    std::shared_ptr<PredictionQuerier> ptr_prediction_querier)
+    std::shared_ptr<PredictionQuerier> ptr_prediction_querier,
+    const PlanningConfig& config)
     : init_s_(init_s),
       init_d_(init_d),
+      path_decision_(path_decision),
       feasible_region_(init_s),
       ptr_path_time_graph_(std::move(ptr_path_time_graph)),
-      ptr_prediction_querier_(std::move(ptr_prediction_querier)) {}
+      ptr_prediction_querier_(std::move(ptr_prediction_querier)) {
+          Init(config); // JZ Added - read calibration parameters
+      }
+
+void EndConditionSampler::Init(const PlanningConfig& config){
+    // calibration parameter for SampleLatEndConditions()
+    LatEnd_d1 = config.latend_d1();
+    LatEnd_d2 = config.latend_d2();
+    LatEnd_d3 = config.latend_d3();
+    LatEnd_d4 = config.latend_d4();
+    LatEnd_d5 = config.latend_d5();
+    LatEnd_d6 = config.latend_d6();
+    LatEnd_d7 = config.latend_d7();
+
+    LatEnd_s1 = config.latend_s1();
+    LatEnd_s2 = config.latend_s2();
+    LatEnd_s3 = config.latend_s3();
+    LatEnd_s4 = config.latend_s4();
+    LatEnd_s5 = config.latend_s5();
+    LatEnd_s6 = config.latend_s6();
+
+    // calibration parameters for FLAGs
+
+}
 
 std::vector<Condition> EndConditionSampler::SampleLatEndConditions() const {
   std::vector<Condition> end_d_conditions;
-  std::array<double, 3> end_d_candidates = {0.0, -0.5, 0.5};
-  std::array<double, 4> end_s_candidates = {10.0, 20.0, 40.0, 80.0};
 
-  for (const auto& s : end_s_candidates) {
-    for (const auto& d : end_d_candidates) {
-      State end_d_state = {d, 0.0, 0.0};
-      end_d_conditions.emplace_back(end_d_state, s);
-    }
+  // JZ Added, when SIDEPASS is requested, sample more lateral points to the left lane.
+  bool sidepass_requested = false;
+  for (const auto* path_obstacle : path_decision_->path_obstacles().Items()) {
+    if (path_obstacle->LateralDecision().has_sidepass()) {
+      sidepass_requested = true;
+      break;
+    } 
   }
+
+  if (sidepass_requested) {
+    auto* sidepass_status = GetPlanningStatus()->mutable_side_pass();
+    if (sidepass_status->pass_side()==ObjectSidePass::LEFT) {
+      std::array<double, 6> end_d_candidates = {LatEnd_d1, LatEnd_d2, LatEnd_d3, LatEnd_d4, LatEnd_d5, LatEnd_d6};
+      std::array<double, 4> end_s_candidates = {LatEnd_s1, LatEnd_s2, LatEnd_s3, LatEnd_s4};
+      for (const auto& s : end_s_candidates) {
+        for (const auto& d : end_d_candidates) {
+          State end_d_state = {d, 0.0, 0.0};
+          end_d_conditions.emplace_back(end_d_state, s);
+        }
+      }  
+    } else if (sidepass_status->pass_side()==ObjectSidePass::RIGHT) {
+        std::array<double, 6> end_d_candidates = {LatEnd_d1, LatEnd_d2, LatEnd_d3, -LatEnd_d4, -LatEnd_d5, -LatEnd_d6};
+        std::array<double, 4> end_s_candidates = {LatEnd_s1, LatEnd_s2, LatEnd_s3, LatEnd_s4};
+        for (const auto& s : end_s_candidates) {
+          for (const auto& d : end_d_candidates) {
+            State end_d_state = {d, 0.0, 0.0};
+            end_d_conditions.emplace_back(end_d_state, s);
+          }
+        }        
+    }
+
+  } else {
+    std::array<double, 3> end_d_candidates = {LatEnd_d1, LatEnd_d2, LatEnd_d3};
+    std::array<double, 4> end_s_candidates = {LatEnd_s1, LatEnd_s2, LatEnd_s3, LatEnd_s4};    
+      for (const auto& s : end_s_candidates) {
+        for (const auto& d : end_d_candidates) {
+          State end_d_state = {d, 0.0, 0.0};
+          end_d_conditions.emplace_back(end_d_state, s);
+        }
+      }
+  }
+
   return end_d_conditions;
 }
 
@@ -61,7 +128,7 @@ std::vector<Condition> EndConditionSampler::SampleLonEndConditionsForCruising(
   CHECK_GT(FLAGS_num_velocity_sample, 1);
 
   // time interval is one second plus the last one 0.01
-  constexpr std::size_t num_of_time_samples = 9;
+  constexpr std::size_t num_of_time_samples = 6;
   std::array<double, num_of_time_samples> time_samples;
   for (std::size_t i = 0; i + 1 < num_of_time_samples; ++i) {
     time_samples[i] = FLAGS_trajectory_time_length - i;
@@ -107,8 +174,11 @@ std::vector<Condition> EndConditionSampler::SampleLonEndConditionsForStopping(
   time_sections[num_time_section - 1] = FLAGS_polynomial_minimal_param;
 
   std::vector<Condition> end_s_conditions;
+
+  //JZ Added - end_s changed to ref_stop_point - FLAGS_lattice_stop_buffer * 10.0
+  // to prevent being filtered out by trajectory evaluator
   for (const auto& time : time_sections) {
-    State end_s = {std::max(init_s_[0], ref_stop_point), 0.0, 0.0};
+    State end_s = {std::max(init_s_[0], ref_stop_point - FLAGS_lattice_stop_buffer * 10.0), 0.0, 0.0};
     end_s_conditions.emplace_back(end_s, time);
   }
   return end_s_conditions;

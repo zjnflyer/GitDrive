@@ -43,8 +43,10 @@ class Trajectory1dGenerator {
   Trajectory1dGenerator(
       const std::array<double, 3>& lon_init_state,
       const std::array<double, 3>& lat_init_state,
+      PathDecision* path_decision,
       std::shared_ptr<PathTimeGraph> ptr_path_time_graph,
-      std::shared_ptr<PredictionQuerier> ptr_prediction_querier);
+      std::shared_ptr<PredictionQuerier> ptr_prediction_querier,
+      const PlanningConfig& config);
 
   virtual ~Trajectory1dGenerator() = default;
 
@@ -55,6 +57,8 @@ class Trajectory1dGenerator {
 
   void GenerateLateralTrajectoryBundle(
       std::vector<std::shared_ptr<Curve1d>>* ptr_lat_trajectory_bundle) const;
+
+  void Init(const PlanningConfig& config);
 
  private:
   void GenerateSpeedProfilesForCruising(
@@ -87,6 +91,12 @@ class Trajectory1dGenerator {
   EndConditionSampler end_condition_sampler_;
 
   std::shared_ptr<PathTimeGraph> ptr_path_time_graph_;
+
+  bool FLAGS_enable_cruising_trajectory;
+  bool FLAGS_enable_stopping_trajectory;
+  bool FLAGS_enable_pathtime_trajectory;
+  bool FLAGS_enable_speed_limit_overwrite;
+  double Speed_limit_overwrite;
 };
 
 template <>

@@ -55,7 +55,8 @@ class TrajectoryEvaluator {
       const std::vector<std::shared_ptr<Curve1d>>& lon_trajectories,
       const std::vector<std::shared_ptr<Curve1d>>& lat_trajectories,
       std::shared_ptr<PathTimeGraph> path_time_graph,
-      std::shared_ptr<std::vector<apollo::common::PathPoint>> reference_line);
+      std::shared_ptr<std::vector<apollo::common::PathPoint>> reference_line,
+      const PlanningConfig& config);
 
   virtual ~TrajectoryEvaluator() = default;
 
@@ -75,6 +76,8 @@ class TrajectoryEvaluator {
       const std::vector<apollo::common::SpeedPoint>& st_points,
       const std::vector<apollo::common::FrenetFramePoint>& sl_points,
       std::vector<double>* cost_components);
+
+  void Init(const PlanningConfig& config);
 
  private:
   double Evaluate(const PlanningTarget& planning_target,
@@ -159,6 +162,14 @@ class TrajectoryEvaluator {
   std::array<double, 3> init_s_;
 
   std::vector<double> reference_s_dot_;
+
+    double weight_lon_objective;
+    double weight_lon_jerk;
+    double weight_lon_collision;
+    double weight_centripetal_acceleration;
+    double weight_lat_offset;
+    double weight_lat_comfort;
+    bool enable_cost_component_record;
 };
 
 }  // namespace planning
