@@ -105,42 +105,75 @@ bool TrafficDecider::Init(const TrafficRuleConfigs &config) {
 void TrafficDecider::BuildPlanningTarget(
     ReferenceLineInfo *reference_line_info) {
   double min_s = std::numeric_limits<double>::infinity();
+  double dist_s = 0.0;
+  double min_s_temp = 0.0;
+  double dist_s_temp = 0.0;
+  auto stop_code = StopReasonCode::NO_STOP;
   StopPoint stop_point;
   for (const auto *obstacle :
        reference_line_info->path_decision()->path_obstacles().Items()) {
-    if (obstacle->obstacle()->IsVirtual() &&
+    if (//obstacle->obstacle()->IsVirtual() &&
         obstacle->HasLongitudinalDecision() &&
         obstacle->LongitudinalDecision().has_stop() &&
         obstacle->PerceptionSLBoundary().start_s() < min_s) {
-      min_s = obstacle->PerceptionSLBoundary().start_s();
-      const auto &stop_code =
-          obstacle->LongitudinalDecision().stop().reason_code();
+      
+      // JZ Added - using the stop point distance calculated in traffic rules
+      // JZ Added - also check if new stop point is closer and overwrite the current one if true
+      dist_s_temp = obstacle->LongitudinalDecision().stop().distance_s();
+      min_s_temp = obstacle->PerceptionSLBoundary().start_s();
+      if ((min_s_temp + dist_s_temp) < (min_s + dist_s)) {
+        dist_s = dist_s_temp;
+        min_s = min_s_temp;
+        stop_code = obstacle->LongitudinalDecision().stop().reason_code();
+      }
+      else {
+        AINFO << "Stop point further away from current one. Stop point discarded for obstacle [" << obstacle->Id() << "]";
+        continue;
+      }
+    }
+  }
+
       if (stop_code == StopReasonCode::STOP_REASON_DESTINATION ||
           stop_code == StopReasonCode::STOP_REASON_CROSSWALK ||
           stop_code == StopReasonCode::STOP_REASON_STOP_SIGN ||
           stop_code == StopReasonCode::STOP_REASON_YIELD_SIGN ||
           stop_code == StopReasonCode::STOP_REASON_CREEPER ||
           stop_code == StopReasonCode::STOP_REASON_REFERENCE_END ||
-          stop_code == StopReasonCode::STOP_REASON_SIGNAL) {
+          stop_code == StopReasonCode::STOP_REASON_SIGNAL ||
+          stop_code == StopReasonCode::STOP_REASON_HEAD_VEHICLE ||
+          stop_code == StopReasonCode::STOP_REASON_OBSTACLE) {
         stop_point.set_type(StopPoint::HARD);
-        ADEBUG << "Hard stop at: " << min_s
-               << "REASON: " << StopReasonCode_Name(stop_code);
+        ADEBUG << "Hard stop at: " << min_s + dist_s
+               << " REASON: " << StopReasonCode_Name(stop_code);
+        AINFO << "Hard stop at: " << min_s + dist_s
+               << " REASON: " << StopReasonCode_Name(stop_code);
+
       } else if (stop_code == StopReasonCode::STOP_REASON_YELLOW_SIGNAL) {
         stop_point.set_type(StopPoint::SOFT);
-        ADEBUG << "Soft stop at: " << min_s << "  STOP_REASON_YELLOW_SIGNAL";
+        ADEBUG << "Soft stop at: " << min_s + dist_s << "  STOP_REASON_YELLOW_SIGNAL";
+        AINFO << "Soft stop at: " << min_s + dist_s
+               << "REASON: " << StopReasonCode_Name(stop_code);
       } else {
         ADEBUG << "No planning target found at reference line.";
+        AINFO << "No planning target found at reference line (from Traffic Decider)";
       }
-    }
-  }
+
   if (min_s != std::numeric_limits<double>::infinity()) {
+    
     const auto &vehicle_config =
         common::VehicleConfigHelper::instance()->GetConfig();
     double front_edge_to_center =
         vehicle_config.vehicle_param().front_edge_to_center();
+/*
     stop_point.set_s(min_s - front_edge_to_center +
                      FLAGS_virtual_stop_wall_length / 2.0);
+*/
+
+// JZ added - using the non-virtual stop point distance calculated in traffic rules
+
+    stop_point.set_s(min_s + dist_s - front_edge_to_center);
     reference_line_info->SetStopPoint(stop_point);
+    AINFO << "min_s = " << min_s << " dist_s = " << dist_s;
   }
 }
 
@@ -149,6 +182,8 @@ Status TrafficDecider::Execute(Frame *frame,
   CHECK_NOTNULL(frame);
   CHECK_NOTNULL(reference_line_info);
 
+  AINFO << "______________ Traffic Decider Started ______________";
+  
   for (const auto &rule_config : rule_configs_.config()) {
     if (!rule_config.enabled()) {
       ADEBUG << "Rule " << rule_config.rule_id() << " not enabled";
@@ -167,6 +202,9 @@ Status TrafficDecider::Execute(Frame *frame,
   // Creeper::instance()->Run(frame, reference_line_info);
 
   BuildPlanningTarget(reference_line_info);
+
+  AINFO << "______________ Traffic Decider Ended ______________";
+
   return Status::OK();
 }
 

@@ -51,7 +51,11 @@ Status FrontVehicle::ApplyRule(Frame* const frame,
   CHECK_NOTNULL(frame);
   CHECK_NOTNULL(reference_line_info);
 
+  AINFO << "............ Traffic Rule (front_vehicle) Started ............";
+
   MakeDecisions(frame, reference_line_info);
+
+  AINFO << "............ Traffic Rule (front_vehicle) Ended ............";
 
   return Status::OK();
 }
@@ -77,15 +81,18 @@ bool FrontVehicle::MakeSidePassDecision(
   CHECK_NOTNULL(reference_line_info);
 
   if (!config_.front_vehicle().enable_side_pass()) {
+    AINFO << "MakeSidePassDecision interrupted, sidepass disabled in traffic rule";
     return true;
   }
 
   if (!reference_line_info->Lanes().IsOnSegment()) {
     // The lane keeping reference line
+    AINFO << "MakeSidePassDecision interrupted, IsOnSegment returned false";
     return true;
   }
 
   if (!ProcessSidePass(reference_line_info)) {
+    AINFO << "MakeSidePassDecision interrupted, ProcessSidePass returned false";
     return false;
   }
 
@@ -101,6 +108,8 @@ bool FrontVehicle::MakeSidePassDecision(
     auto* path_decision = reference_line_info->path_decision();
     path_decision->AddLateralDecision(
         "front_vehicle", sidepass_status->pass_obstacle_id(), sidepass);
+    AINFO << "Lateral Decision 'SIDEPASS' added for: obstacle[" << sidepass_status->pass_obstacle_id()
+           << "]";
   }
 
   return true;
@@ -113,12 +122,27 @@ bool FrontVehicle::ProcessSidePass(
   // find obstacle being blocked, to process SIDEPASS
   std::string passable_obstacle_id = FindPassableObstacle(reference_line_info);
 
+  // JZ Added - check if there is passable obstacle, if false then return directly
+  if (passable_obstacle_id.empty()) {
+    AINFO << "no passable obstacle found on this reference line";
+    return true;
+  }
+
   auto* sidepass_status = GetPlanningStatus()->mutable_side_pass();
   if (!sidepass_status->has_status()) {
     sidepass_status->set_status(SidePassStatus::UNKNOWN);
   }
+
+  // JZ Added - check if the stored pass_obstacle_id is the same as the current passable obstacle id
+  // if yes then set status to UNKNOWN once
+  if (sidepass_status->pass_obstacle_id()!=passable_obstacle_id) {
+    sidepass_status->set_status(SidePassStatus::UNKNOWN);
+    sidepass_status->set_pass_obstacle_id(passable_obstacle_id);
+  }
+
   auto status = sidepass_status->status();
   ADEBUG << "side_pass status: " << SidePassStatus_Status_Name(status);
+  AINFO << "side_pass status: " << SidePassStatus_Status_Name(status);
 
   switch (status) {
     case SidePassStatus::UNKNOWN: {
@@ -126,7 +150,7 @@ bool FrontVehicle::ProcessSidePass(
       break;
     }
     case SidePassStatus::DRIVE: {
-      constexpr double kAdcStopSpeedThreshold = 0.1;  // unit: m/s
+      const double kAdcStopSpeedThreshold = config_.front_vehicle().adc_stop_speed_threshold();  // JZ_Added unit: m/s
       const auto& adc_planning_point = EgoInfo::instance()->start_point();
       if (!passable_obstacle_id.empty() &&
           adc_planning_point.v() < kAdcStopSpeedThreshold) {
@@ -156,6 +180,7 @@ bool FrontVehicle::ProcessSidePass(
           reference_line.GetLaneFromS(adc_s, &lanes);
           if (lanes.empty()) {
             AWARN << "No valid lane found at s[" << adc_s << "]";
+            AINFO << "No valid lane found at s[" << adc_s << "]";
             return false;
           }
 
@@ -171,6 +196,7 @@ bool FrontVehicle::ProcessSidePass(
             if (lane.left_neighbor_forward_lane_id_size() > 0) {
               enter_sidepass_mode = true;
               side = ObjectSidePass::LEFT;
+              AINFO << "sidepass type set to 'FORWARD LEFT'";
             }
             if (!enter_sidepass_mode &&
                 lane.right_neighbor_forward_lane_id_size() > 0) {
@@ -185,17 +211,20 @@ bool FrontVehicle::ProcessSidePass(
               if (has_city_driving) {
                 enter_sidepass_mode = true;
                 side = ObjectSidePass::RIGHT;
+                AINFO << "sidepass type set to 'FORWARD RIGHT'";
               }
             }
             if (!enter_sidepass_mode &&
                 lane.left_neighbor_reverse_lane_id_size() > 0) {
               enter_sidepass_mode = true;
               side = ObjectSidePass::LEFT;
+              AINFO << "sidepass type set to 'REVERSE LEFT'";
             }
             if (!enter_sidepass_mode &&
                 lane.right_neighbor_reverse_lane_id_size() > 0) {
               enter_sidepass_mode = true;
               side = ObjectSidePass::RIGHT;
+              AINFO << "sidepass type set to 'REVERSE RIGHT'";
             }
           }
           if (enter_sidepass_mode) {
@@ -203,6 +232,8 @@ bool FrontVehicle::ProcessSidePass(
             sidepass_status->set_pass_obstacle_id(passable_obstacle_id);
             sidepass_status->clear_wait_start_time();
             sidepass_status->set_pass_side(side);
+          } else {
+            AINFO << "No left or right lane found to execute side pass";
           }
         }
       }
@@ -243,12 +274,19 @@ std::string FrontVehicle::FindPassableObstacle(
         !path_obstacle->obstacle()->IsStatic()) {
       ADEBUG << "obstacle_id[" << obstacle_id << "] type[" << obstacle_type_name
              << "] VIRTUAL or NOT STATIC. SKIP";
+      AINFO << "obstacle_id[" << obstacle_id << "] type[" << obstacle_type_name
+             << "] VIRTUAL or NOT STATIC. SKIP";
       continue;
     }
 
+// JZ Added - original "if (obstacle_sl.start_s() <= adc_sl_boundary.end_s()) "
+// probably a bug, obstacle behind ADC => obs.end_s < adc.start_s
+
     const auto& obstacle_sl = path_obstacle->PerceptionSLBoundary();
-    if (obstacle_sl.start_s() <= adc_sl_boundary.end_s()) {
+    if (obstacle_sl.end_s() <= adc_sl_boundary.start_s()) {
       ADEBUG << "obstacle_id[" << obstacle_id << "] type[" << obstacle_type_name
+             << "] behind ADC. SKIP";
+      AINFO << "obstacle_id[" << obstacle_id << "] type[" << obstacle_type_name
              << "] behind ADC. SKIP";
       continue;
     }
@@ -259,6 +297,8 @@ std::string FrontVehicle::FindPassableObstacle(
         side_pass_s_threshold) {
       ADEBUG << "obstacle_id[" << obstacle_id << "] type[" << obstacle_type_name
              << "] outside of s_threshold. SKIP";
+      AINFO << "obstacle_id[" << obstacle_id << "] type[" << obstacle_type_name
+             << "] outside of s_threshold. SKIP";
       continue;
     }
 
@@ -268,6 +308,10 @@ std::string FrontVehicle::FindPassableObstacle(
         obstacle_sl.end_l() < -side_pass_l_threshold) {
       ADEBUG << "obstacle_id[" << obstacle_id << "] type[" << obstacle_type_name
              << "] outside of l_threshold. SKIP";
+      AINFO << "obstacle_id[" << obstacle_id << "] type[" << obstacle_type_name
+             << "] outside of l_threshold. SKIP";
+      AINFO << "obstacle start_l: " << obstacle_sl.start_l();      
+      AINFO << "obstacle end_l: " << obstacle_sl.end_l();
       continue;
     }
 
@@ -296,6 +340,8 @@ std::string FrontVehicle::FindPassableObstacle(
     }
     if (!is_blocked_by_others) {
       passable_obstacle_id = path_obstacle->Id();
+      AINFO << "passable obstacle found: " << passable_obstacle_id;
+      AINFO << "distance to EGO car: " << obstacle_sl.start_s() - adc_sl_boundary.end_s();
       break;
     }
   }
@@ -321,14 +367,20 @@ void FrontVehicle::MakeStopDecision(ReferenceLineInfo* reference_line_info) {
         !path_obstacle->obstacle()->IsStatic()) {
       ADEBUG << "obstacle_id[" << obstacle_id << "] type[" << obstacle_type_name
              << "] VIRTUAL or NOT STATIC. SKIP";
+      AINFO << "obstacle_id[" << obstacle_id << "] type[" << obstacle_type_name
+             << "] VIRTUAL or NOT STATIC. SKIP";
+
       continue;
     }
 
     bool is_on_road = reference_line_info->reference_line().HasOverlap(
         path_obstacle->obstacle()->PerceptionBoundingBox());
+    double length = reference_line_info->reference_line().Length();
     if (!is_on_road) {
       // skip obstacles not on reference line
       ADEBUG << "obstacle_id[" << obstacle_id << "] type[" << obstacle_type_name
+             << "] NOT_ON_ROAD. SKIP";
+      AINFO << "obstacle_id[" << obstacle_id << "] type[" << obstacle_type_name
              << "] NOT_ON_ROAD. SKIP";
       continue;
     }
@@ -340,12 +392,17 @@ void FrontVehicle::MakeStopDecision(ReferenceLineInfo* reference_line_info) {
       // skip backside vehicles
       ADEBUG << "obstacle_id[" << obstacle_id << "] type[" << obstacle_type_name
              << "] behind ADC. SKIP";
+      AINFO << "obstacle_id[" << obstacle_id << "] type[" << obstacle_type_name
+             << "] behind ADC. SKIP";
+
       continue;
     }
 
     // check SIDE_PASS decision
     if (path_obstacle->LateralDecision().has_sidepass()) {
       ADEBUG << "obstacle_id[" << obstacle_id << "] type[" << obstacle_type_name
+             << "] SIDE_PASS. SKIP";
+      AINFO << "obstacle_id[" << obstacle_id << "] type[" << obstacle_type_name
              << "] SIDE_PASS. SKIP";
       continue;
     }
@@ -368,20 +425,37 @@ void FrontVehicle::MakeStopDecision(ReferenceLineInfo* reference_line_info) {
     const double right_driving_width = right_width + obstacle_sl.start_l() -
                                        config_.front_vehicle().nudge_l_buffer();
 
-    ADEBUG << "obstacle_id[" << obstacle_id << "] type[" << obstacle_type_name
+    ADEBUG << "obstacle_id[" << obstacle_id << "] type[" << obstacle_type_name 
            << "] left_driving_width[" << left_driving_width
            << "] right_driving_width[" << right_driving_width << "] adc_width["
            << adc_width << "]";
 
+    // JZ Added - limit nudge speed based on lateral buffer distance
+    const auto& adc_planning_point = EgoInfo::instance()->start_point();
+    double lateral_dist = std::max(left_driving_width - adc_width, right_driving_width - adc_width);
+    double longitudinal_dist = obstacle_sl.start_s() - adc_sl.end_s();
+    double k_nudge_speed_coef = config_.front_vehicle().nudge_speed_coef(); // JZ Added
+    double adc_nudge_speed_limit = lateral_dist * k_nudge_speed_coef;
+    const double stop_distance =
+        path_obstacle->MinRadiusStopDistance(vehicle_param);
+    const double early_stop_dist = config_.front_vehicle().early_stop_buffer(); // JZ Added
+    const double total_stop_dist = stop_distance + early_stop_dist;             // JZ Added
+
     // stop if not able to bypass or if obstacle crossed reference line
     if ((left_driving_width < adc_width && right_driving_width < adc_width) ||
-        (obstacle_sl.start_l() <= 0.0 && obstacle_sl.end_l() >= 0.0)) {
+        (obstacle_sl.start_l() <= 0.0 && obstacle_sl.end_l() >= 0.0) ||
+        (adc_planning_point.v() > adc_nudge_speed_limit && longitudinal_dist > total_stop_dist)) {
+      AINFO << "obstacle_id[" << obstacle_id << "] type[" << obstacle_type_name << "]" << " ON ROAD, CAN NOT NUDGE";
+      AINFO << "left_driving_width[" << left_driving_width
+            << "] right_driving_width[" << right_driving_width << "] adc_width["
+            << adc_width << "]";
+      AINFO << "adc_speed = " << adc_planning_point.v() << "vs" << "adc_nudge_speed_limit = " << adc_nudge_speed_limit;
       ADEBUG << "STOP: obstacle[" << obstacle_id << "]";
+      AINFO << "STOP: obstacle[" << obstacle_id << "]";
 
       // build stop decision
-      const double stop_distance =
-          path_obstacle->MinRadiusStopDistance(vehicle_param);
-      const double stop_s = obstacle_sl.start_s() - stop_distance;
+
+      const double stop_s = obstacle_sl.start_s() - stop_distance - early_stop_dist;
       auto stop_point = reference_line.GetReferencePoint(stop_s);
       const double stop_heading =
           reference_line.GetReferencePoint(stop_s).heading();
@@ -396,7 +470,7 @@ void FrontVehicle::MakeStopDecision(ReferenceLineInfo* reference_line_info) {
       } else {
         stop_decision->set_reason_code(StopReasonCode::STOP_REASON_OBSTACLE);
       }
-      stop_decision->set_distance_s(-stop_distance);
+      stop_decision->set_distance_s(-total_stop_dist);
       stop_decision->set_stop_heading(stop_heading);
       stop_decision->mutable_stop_point()->set_x(stop_point.x());
       stop_decision->mutable_stop_point()->set_y(stop_point.y());
@@ -404,6 +478,15 @@ void FrontVehicle::MakeStopDecision(ReferenceLineInfo* reference_line_info) {
 
       path_decision->AddLongitudinalDecision("front_vehicle",
                                              path_obstacle->Id(), stop);
+      AINFO << "Build stop point and set reason code: " << path_obstacle->LongitudinalDecision().stop().reason_code();
+      AINFO << "Stop point s = " << stop_s;
+    }
+    else {
+      AINFO << "obstacle_id[" << obstacle_id << "] type[" << obstacle_type_name << "]" << " ON ROAD, NUDGE OK";
+      AINFO << "left_driving_width[" << left_driving_width
+            << "] right_driving_width[" << right_driving_width << "] adc_width["
+            << adc_width << "]";
+      
     }
   }
 }

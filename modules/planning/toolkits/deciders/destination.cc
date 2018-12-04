@@ -45,7 +45,12 @@ Status Destination::ApplyRule(Frame* frame,
   CHECK_NOTNULL(frame);
   CHECK_NOTNULL(reference_line_info);
 
+  AINFO << "............ Traffic Rule (destination) Started ............";
+
   if (!frame->is_near_destination()) {
+      AINFO << "Not near destination yet, return directly";
+      AINFO << "............ Traffic Rule (destination) Ended ............";
+
     return Status::OK();
   }
 
@@ -58,12 +63,19 @@ Status Destination::ApplyRule(Frame* frame,
   ref_line.XYToSL({routing_end.pose().x(), routing_end.pose().y()}, &dest_sl);
   const auto& adc_sl = reference_line_info->AdcSlBoundary();
   const auto& dest = GetPlanningStatus()->destination();
+
+  AINFO << "adc_sl.start_s = " << adc_sl.start_s() << " desl_sl.s = " << dest_sl.s();
+
   if (adc_sl.start_s() > dest_sl.s() && !dest.has_passed_destination()) {
     ADEBUG << "Destination at back, but we have not reached destination yet";
+    AINFO << "Destination at back, but we have not reached destination yet";
+    AINFO << "............ Traffic Rule (destination) Ended ............";
     return Status::OK();
   }
 
   BuildStopDecision(frame, reference_line_info);
+
+  AINFO << "............ Traffic Rule (destination) Ended ............";
 
   return Status::OK();
 }
@@ -94,6 +106,8 @@ int Destination::BuildStopDecision(
       planning_status->pull_over().status() == PullOverStatus::DISABLED) {
     Stop(frame, reference_line_info, routing_end.id(), dest_lane_s);
     ADEBUG << "destination: STOP at current lane. PULL-OVER disabled";
+    AINFO << "destination: STOP at current lane. PULL-OVER disabled";
+
     return 0;
   }
 
@@ -104,14 +118,18 @@ int Destination::BuildStopDecision(
         planning_status->pull_over().in_pull_over()) {
       PullOver(nullptr);
       ADEBUG << "destination: continue PULL OVER";
+      AINFO << "destination: continue PULL OVER";
+
     } else {
       PullOver(&dest_point);
       ADEBUG << "destination: PULL OVER";
+      AINFO << "destination: PULL OVER";
     }
   } else {
     Stop(frame, reference_line_info, routing_end.id(), dest_lane_s);
     ADEBUG << "destination: STOP at current lane";
-  }
+    AINFO << "destination: STOP at current lane";
+      }
 
   return 0;
 }
@@ -141,12 +159,17 @@ int Destination::Stop(Frame* const frame,
     return -1;
   }
 
+  AINFO << "virtual obstacle and PathObstacle stop_wall created";
+
   // build stop decision
   const auto stop_wall_box = stop_wall->obstacle()->PerceptionBoundingBox();
   if (!reference_line.IsOnLane(stop_wall_box.center())) {
     ADEBUG << "destination point is not on lane";
+    AINFO << "destination point is not on lane";
     return 0;
   }
+
+
   auto stop_point = reference_line.GetReferencePoint(
       stop_wall->PerceptionSLBoundary().start_s() -
       config_.destination().stop_distance());
@@ -163,6 +186,8 @@ int Destination::Stop(Frame* const frame,
   auto* path_decision = reference_line_info->path_decision();
   path_decision->AddLongitudinalDecision(
       TrafficRuleConfig::RuleId_Name(config_.rule_id()), stop_wall->Id(), stop);
+
+  AINFO << "Build stop point and set reason code: " << stop_wall->LongitudinalDecision().stop().reason_code();
 
   return 0;
 }
@@ -218,7 +243,7 @@ bool Destination::CheckPullOver(ReferenceLineInfo* const reference_line_info,
          << "] dest_lane_s[" << dest_lane_s << "]";
 
   if (distance_to_dest > config_.destination().pull_over_plan_distance()) {
-    // to far, not sending pull-over yet
+    // too far, not sending pull-over yet
     return false;
   }
 
