@@ -613,11 +613,16 @@ bool ReferenceLine::HasOverlap(const common::math::Box2d& box) const {
     AERROR << "Failed to get sl boundary for box " << box.DebugString();
     return false;
   }
+  
   if (sl_boundary.end_s() < 0 || sl_boundary.start_s() > Length()) {
     return false;
   }
+
+// JZ Added - for the following equation Apollo originally used "< 0", probably a bug: if start_l*end_l < 0 it crosses ref. line
+// changed to return true
+
   if (sl_boundary.start_l() * sl_boundary.end_l() < 0) {
-    return false;
+    return true;
   }
 
   double lane_left_width = 0.0;
@@ -625,6 +630,7 @@ bool ReferenceLine::HasOverlap(const common::math::Box2d& box) const {
   const double mid_s = (sl_boundary.start_s() + sl_boundary.end_s()) / 2.0;
   if (mid_s < 0 || mid_s > Length()) {
     ADEBUG << "ref_s out of range:" << mid_s;
+//    AINFO << "ref_s out of range:" << mid_s;
     return false;
   }
   if (!map_path_.GetLaneWidth(mid_s, &lane_left_width, &lane_right_width)) {
