@@ -167,7 +167,7 @@ Status LatticePlanner::PlanOnReferenceLine(
   std::array<double, 3> init_d;
   ComputeInitFrenetState(matched_point, planning_init_point, &init_s, &init_d);
 
-  ADEBUG << "ReferenceLine and Frenet Conversion Time = "
+  AINFO << "ReferenceLine and Frenet Conversion Time = "
          << (Clock::NowInSeconds() - current_time) * 1000;
   current_time = Clock::NowInSeconds();
 
@@ -189,8 +189,6 @@ Status LatticePlanner::PlanOnReferenceLine(
 
   PlanningTarget planning_target = reference_line_info->planning_target();
   if (planning_target.has_stop_point()) {
-    ADEBUG << "Planning target stop s: " << planning_target.stop_point().s()
-           << " Current ego s: " << init_s[0];
     AINFO << "Planning target stop s: " << planning_target.stop_point().s()
            << " Current ego s: " << init_s[0];
   }
@@ -198,19 +196,17 @@ Status LatticePlanner::PlanOnReferenceLine(
   // JZ Added. use path_decision information in trajectory_generator and end_condition_sampler
   auto path_decision = reference_line_info->path_decision();
 
-  ADEBUG << "Decision_Time = " << (Clock::NowInSeconds() - current_time) * 1000;
+  AINFO << "Decision_Time = " << (Clock::NowInSeconds() - current_time) * 1000;
   current_time = Clock::NowInSeconds();
 
   // 5. generate 1d trajectory bundle for longitudinal and lateral respectively.
   Trajectory1dGenerator trajectory1d_generator(
-      init_s, init_d, path_decision, ptr_path_time_graph, ptr_prediction_querier, config_);
+      init_s, init_d, path_decision, reference_line_info, ptr_path_time_graph, ptr_prediction_querier, config_);
   std::vector<std::shared_ptr<Curve1d>> lon_trajectory1d_bundle;
   std::vector<std::shared_ptr<Curve1d>> lat_trajectory1d_bundle;
   trajectory1d_generator.GenerateTrajectoryBundles(
       planning_target, &lon_trajectory1d_bundle, &lat_trajectory1d_bundle);
 
-  ADEBUG << "Trajectory_Generation_Time = "
-         << (Clock::NowInSeconds() - current_time) * 1000;
   AINFO << "Trajectory_Generation_Time = "
          << (Clock::NowInSeconds() - current_time) * 1000;
   current_time = Clock::NowInSeconds();
@@ -223,16 +219,9 @@ Status LatticePlanner::PlanOnReferenceLine(
       init_s, planning_target, lon_trajectory1d_bundle, lat_trajectory1d_bundle,
       ptr_path_time_graph, ptr_reference_line, config_);
 
-  ADEBUG << "Trajectory_Evaluator_Construction_Time = "
-         << (Clock::NowInSeconds() - current_time) * 1000;
   AINFO << "Trajectory_Evaluator_Construction_Time = "
          << (Clock::NowInSeconds() - current_time) * 1000;
   current_time = Clock::NowInSeconds();
-
-  ADEBUG << "number of trajectory pairs = "
-         << trajectory_evaluator.num_of_trajectory_pairs()
-         << "  number_lon_traj = " << lon_trajectory1d_bundle.size()
-         << "  number_lat_traj = " << lat_trajectory1d_bundle.size();
 
   AINFO << "number of trajectory pairs = "
          << trajectory_evaluator.num_of_trajectory_pairs()
@@ -375,8 +364,6 @@ Status LatticePlanner::PlanOnReferenceLine(
     // Auto Tuning End
 
     // Print the chosen end condition and start condition
-    ADEBUG << "Starting Lon. State: s = " << init_s[0] << " ds = " << init_s[1]
-           << " dds = " << init_s[2];
     AINFO << "Starting Lon. State: S = " << init_s[0] << " dS = " << init_s[1]
            << " ddS = " << init_s[2];
     AINFO << "Starting Lat. State: L = " << init_d[0] << " dL = " << init_d[1]
@@ -422,9 +409,6 @@ Status LatticePlanner::PlanOnReferenceLine(
     ADEBUG << "L: (" << init_d[0] << ", " << init_d[1] << "," << init_d[2]
            << ")";
 
-    ADEBUG << "Reference_line_priority_cost = "
-           << reference_line_info->PriorityCost();
-    ADEBUG << "Total_Trajectory_Cost = " << trajectory_pair_cost;
 
     AINFO << "Reference_line_priority_cost = "
            << reference_line_info->PriorityCost();
@@ -460,20 +444,9 @@ Status LatticePlanner::PlanOnReferenceLine(
     */
   }
 
-  ADEBUG << "Trajectory_Evaluation_Time = "
+
+  AINFO << "Combine + Contraint + Collision Check Time = "
          << (Clock::NowInSeconds() - current_time) * 1000;
-
-  ADEBUG << "Step CombineTrajectory Succeeded";
-
-  ADEBUG << "1d trajectory not valid for constraint ["
-         << constraint_failure_count << "] times";
-  ADEBUG << "Combined trajectory not valid for ["
-         << combined_constraint_failure_count << "] times";
-  ADEBUG << "Trajectory not valid for collision [" << collision_failure_count
-         << "] times";
-  ADEBUG << "Total_Lattice_Planning_Frame_Time = "
-         << (Clock::NowInSeconds() - start_time) * 1000;
-
 
   AINFO << "1d trajectory not valid for constraint ["
          << constraint_failure_count << "] times";
