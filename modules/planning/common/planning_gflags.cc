@@ -163,7 +163,7 @@ DEFINE_double(lateral_jerk_bound, 4.0,
 
 DEFINE_double(dl_bound, 0.10,
               "The bound for derivative l in s-l coordinate system.");
-DEFINE_double(kappa_bound, 0.20, "The bound for trajectory curvature");
+DEFINE_double(kappa_bound, 0.30, "The bound for trajectory curvature, JZ Added");
 DEFINE_double(dkappa_bound, 0.02,
               "The bound for trajectory curvature change rate");
 
@@ -298,9 +298,9 @@ DEFINE_double(backup_trajectory_cost, 1000.0,
               "Default cost of backup trajectory");
 DEFINE_double(min_velocity_sample_gap, 1.0,
               "Minimal sampling gap for velocity");
-DEFINE_double(lon_collision_buffer, 2.0,
+DEFINE_double(lon_collision_buffer, 4.0,
               "The longitudinal buffer to keep distance to other vehicles");
-DEFINE_double(lat_collision_buffer, 0.1,
+DEFINE_double(lat_collision_buffer, 0.3,
               "The lateral buffer to keep distance to other vehicles");
 DEFINE_uint32(num_sample_follow_per_timestamp, 3,
               "The number of sample points for each timestamp to follow");
@@ -318,12 +318,12 @@ DEFINE_double(cost_non_priority_reference_line, 5.0,
               "The cost of planning on non-priority reference line.");
 DEFINE_double(weight_same_side_offset, 1.0,
               "Weight of same side lateral offset cost");
-DEFINE_double(weight_opposite_side_offset, 10.0,
+DEFINE_double(weight_opposite_side_offset, 1.0,
               "Weight of opposite side lateral offset cost");
 DEFINE_double(weight_dist_travelled, 10.0, "Weight of travelled distance cost");
 DEFINE_double(weight_target_speed, 1.0, "Weight of target speed cost");
 DEFINE_double(lat_offset_bound, 3.0, "The bound of lateral offset");
-DEFINE_double(lon_collision_yield_buffer, 1.0,
+DEFINE_double(lon_collision_yield_buffer, 3.0,
               "Longitudinal collision buffer for yield");
 DEFINE_double(lon_collision_overtake_buffer, 5.0,
               "Longitudinal collision buffer for overtake");
