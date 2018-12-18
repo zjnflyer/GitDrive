@@ -99,7 +99,9 @@ void CollisionChecker::BuildPredictedEnvironment(
       continue;
     }
 
-    // JZ Added temp, test collision checking for all obstacles all the time
+    // JZ Added, commented out the IsObstacleInGraph() check
+    // in order to collision check the obstacles outside current lane
+    // when ego vehicle is planning sidepass trajectories
     /*
     if (ego_vehicle_in_lane &&
         (IsObstacleBehindEgoVehicle(obstacle, ego_vehicle_s,
@@ -108,7 +110,13 @@ void CollisionChecker::BuildPredictedEnvironment(
       continue;
     }
     */
-
+   
+    if (ego_vehicle_in_lane &&
+        (IsObstacleBehindEgoVehicle(obstacle, ego_vehicle_s,
+                                    discretized_reference_line))) {
+      continue;
+    }
+    
     obstacles_considered.push_back(obstacle);
   }
 
@@ -135,7 +143,13 @@ bool CollisionChecker::IsEgoVehicleInLane(
   double right_width = FLAGS_default_reference_line_width * 0.5;
   ptr_reference_line_info_->reference_line().GetLaneWidth(
       ego_vehicle_s, &left_width, &right_width);
-  return ego_vehicle_d < left_width && ego_vehicle_d > -right_width;
+  
+  // JZ Added, use vehicle width to further refine the ego_in_lane check 
+  const auto& vehicle_config =
+      common::VehicleConfigHelper::instance()->GetConfig();
+  double half_ego_width = 0.5 * vehicle_config.vehicle_param().width();
+
+  return (ego_vehicle_d < (left_width - half_ego_width)) && (ego_vehicle_d > (-right_width + half_ego_width));
 }
 
 bool CollisionChecker::IsObstacleBehindEgoVehicle(
@@ -147,8 +161,14 @@ bool CollisionChecker::IsObstacleBehindEgoVehicle(
       discretized_reference_line, point.path_point().x(),
       point.path_point().y());
 
+  // JZ Added, use accurate lane width to determine whether obstacle is in lane
+  double left_width = FLAGS_default_reference_line_width * 0.5;
+  double right_width = FLAGS_default_reference_line_width * 0.5;
+  ptr_reference_line_info_->reference_line().GetLaneWidth(
+      ego_vehicle_s, &left_width, &right_width);
   if (obstacle_reference_line_position.first < ego_vehicle_s &&
-      std::fabs(obstacle_reference_line_position.second) < half_lane_width) {
+      obstacle_reference_line_position.second < left_width &&
+      obstacle_reference_line_position.second > -right_width) {
     ADEBUG << "Ignore obstacle [" << obstacle->Id() << "]";
     return true;
   }
