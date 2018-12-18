@@ -66,10 +66,22 @@ message FrontVehicleConfig {
   optional bool enable_side_pass = 1 [ default=true ];
   // within this s_distance to ADC to compute SIDEPASS
   optional double side_pass_s_threshold = 2 [ default=15.0 ]; // meter
-  // within this l_distance(+/-) to ADC to considere SIDEPASS
+  // within this l_distance(+/-) to ADC to consider SIDEPASS
   optional double side_pass_l_threshold = 3 [ default=1.0 ];  // meter
   optional double side_pass_wait_time = 4 [ default=30.0]; // second
   optional double nudge_l_buffer = 5 [ default=0.5]; // meter
+  optional double adc_stop_speed_threshold = 6 [ default=0.1]; //meter, JZ Added
+  optional double early_stop_buffer = 7 [ default=0.0]; //meter, JZ Added
+  // JZ Added - nudge_speed_limit = lateral_dist * k_nudge_speed_coef
+  optional double nudge_speed_coef = 8 [ default=20.0];
+  // JZ Added - any obstacles within side_pass_range (from sidepass point) will be skipped for stop decision
+  optional double side_pass_range = 9 [default=30.0]; //meter
+  // JZ Added - any obstacles outside of sidepass_l_buffer range from ADC will be skipped for stop decision
+  optional double sidepass_l_buffer = 10 [default=0.2]; //meter
+  // JZ Added - sidepassed obstacle will remain labeled as sidepass within sidepass_keep_range
+  optional double sidepass_keep_range = 11 [default=20.0]; //meter
+  // JZ Added - if ADC lateral offset is greater than this threshold, skip the "front vehicle" rule
+  optional double rule_disable_l_threshold = 12 [default=1.0]; //meter
 }
 
 message KeepClearConfig {

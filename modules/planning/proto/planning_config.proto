@@ -98,4 +98,43 @@ message PlanningConfig {
     StandardPlanningConfig standard_planning_config = 4;
     NavigationPlanningConfig navigation_planning_config = 5;
   }
+  // For end_condition_sampler.cc in Lattice Planner
+  optional double LatEnd_d1 = 6;
+  optional double LatEnd_d2 = 7;
+  optional double LatEnd_d3 = 8;
+  optional double LatEnd_d4 = 9;
+  optional double LatEnd_d5 = 10;
+  optional double LatEnd_d6 = 11;
+  optional double LatEnd_d7 = 12;
+
+  optional double LatEnd_s1 = 13;
+  optional double LatEnd_s2 = 14;
+  optional double LatEnd_s3 = 15;
+  optional double LatEnd_s4 = 16;
+  optional double LatEnd_s5 = 17;
+  optional double LatEnd_s6 = 18;
+
+  // For trajectory_generator.cc in Lattice Planner
+  optional bool enable_cruising_trajectory = 19;
+  optional bool enable_stopping_trajectory = 20;
+  optional bool enable_pathtime_trajectory = 21;
+
+  optional bool enable_speed_limit_overwrite = 22;
+  optional double speed_limit_overwrite = 23;
+
+  // For trajectory_evaluator.cc in Lattice Planner
+  optional double lattice_weight_lon_objective = 24;
+  optional double lattice_weight_lon_jerk = 25;
+  optional double lattice_weight_lon_collision = 26;
+  optional double lattice_weight_centripetal_acceleration = 27;
+  optional double lattice_weight_lat_offset = 28;
+  optional double lattice_weight_lat_comfort = 29;
+  optional bool lattice_enable_cost_component_record = 30;
+  optional double lat_overshoot_limit = 31;
+  optional double centripedal_speed_limit = 32;
+
+  // For lattice_planner.cc
+  optional double cost_non_priority_ref_line = 33;
+
+
 }
