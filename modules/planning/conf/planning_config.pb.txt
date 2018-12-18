@@ -7,14 +7,14 @@ standard_planning_config {
 LatEnd_d1 : 0.0
 LatEnd_d2 : -0.5
 LatEnd_d3 : 0.5
-LatEnd_d4 : 3.0
+LatEnd_d4 : 3.5
 LatEnd_d5 : 3.5
-LatEnd_d6 : 4.0
+LatEnd_d6 : 3.5
 LatEnd_d7 : 0
 LatEnd_s1 : 10
 LatEnd_s2 : 20
 LatEnd_s3 : 40
-LatEnd_s4 : 60
+LatEnd_s4 : 80
 LatEnd_s5 : 80
 LatEnd_s6 : 100
 enable_cruising_trajectory : true
@@ -28,5 +28,7 @@ lattice_weight_lon_collision : 5.0
 lattice_weight_centripetal_acceleration : 1.5
 lattice_weight_lat_offset : 0.5
 lattice_weight_lat_comfort : 0.1
+lat_overshoot_limit : 0.5
+centripedal_speed_limit : 5.0
 cost_non_priority_ref_line : 5.0
 lattice_enable_cost_component_record : true
