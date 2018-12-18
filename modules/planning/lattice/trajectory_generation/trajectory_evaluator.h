@@ -170,6 +170,8 @@ class TrajectoryEvaluator {
     double weight_lat_offset;
     double weight_lat_comfort;
     bool enable_cost_component_record;
+    double FLAGS_lat_overshoot_limit;
+    double FLAGS_centripedal_speed_limit;
 };
 
 }  // namespace planning

@@ -135,6 +135,9 @@ void TrajectoryEvaluator::Init(const PlanningConfig& config) {
   weight_lat_comfort = config.lattice_weight_lat_comfort();
 
   enable_cost_component_record = config.lattice_enable_cost_component_record();
+
+  FLAGS_lat_overshoot_limit = config.lat_overshoot_limit();
+  FLAGS_centripedal_speed_limit = config.centripedal_speed_limit();
 }
 
 bool TrajectoryEvaluator::has_more_trajectory_pairs() const {
@@ -223,7 +226,7 @@ double TrajectoryEvaluator::Evaluate(
     cost_components->emplace_back(lon_jerk_cost);
     cost_components->emplace_back(lon_collision_cost);
     cost_components->emplace_back(lat_offset_cost);
-    // JZ Added
+    // JZ Added, added FLAG bit to enable recording all cost_components
     if (enable_cost_component_record) {
       cost_components->emplace_back(centripetal_acc_cost);
       cost_components->emplace_back(lat_comfort_cost);
@@ -271,7 +274,8 @@ double TrajectoryEvaluator::EvaluateDiscreteTrajectory(
 double TrajectoryEvaluator::LatOffsetCost(
     const PtrTrajectory1d& lat_trajectory,
     const std::vector<double>& s_values) const {
-  double lat_offset_start = lat_trajectory->Evaluate(0, 0.0);
+  double lat_offset_start = lat_trajectory->Evaluate(0, 0.0); // JZ Added
+  double lat_offset_end = lat_trajectory->Evaluate(0, s_values[s_values.size()-1]); // JZ Added
   double cost_sqr_sum = 0.0;
   double cost_abs_sum = 0.0;
   for (const auto& s : s_values) {
@@ -283,6 +287,19 @@ double TrajectoryEvaluator::LatOffsetCost(
     } else {
       cost_sqr_sum += cost * cost * FLAGS_weight_same_side_offset;
       cost_abs_sum += std::fabs(cost) * FLAGS_weight_same_side_offset;
+    }
+    // JZ Added, to identify lat trajectories with side overshoot above FLAGS_lat_overshoot_limit
+    // then add a big cost to push back the trajectory in the queue
+    if (lat_offset_start > lat_offset_end) {
+      if ((lat_offset >= lat_offset_start + FLAGS_lat_overshoot_limit) ||
+          (lat_offset <= lat_offset_end - FLAGS_lat_overshoot_limit)) {
+            cost_sqr_sum += 1000;
+      }
+    } else {
+      if ((lat_offset <= lat_offset_start - FLAGS_lat_overshoot_limit) ||
+          (lat_offset >= lat_offset_end + FLAGS_lat_overshoot_limit)) {
+            cost_sqr_sum += 1000;
+      }
     }
   }
   return cost_sqr_sum / (cost_abs_sum + FLAGS_lattice_epsilon);
@@ -314,7 +331,9 @@ double TrajectoryEvaluator::LatComfortCost(
     const PtrTrajectory1d& lon_trajectory,
     const PtrTrajectory1d& lat_trajectory) const {
   double max_cost = 0.0;
-  double max_cost_2 = 0.0;
+
+  // JZ Added - ego_s starts around 30.0 in lon_trajectory, but starts 0.0 in lat_trajectory
+  // so when calculate LatComfortCost, need to subtract s0 from s
   double s0 = lon_trajectory->Evaluate(0, 0.0);
   for (double t = 0.0; t < FLAGS_trajectory_time_length;
        t += FLAGS_trajectory_time_resolution) {
@@ -324,9 +343,7 @@ double TrajectoryEvaluator::LatComfortCost(
     double l_prime = lat_trajectory->Evaluate(1, s-s0);
     double l_primeprime = lat_trajectory->Evaluate(2, s-s0);
     double cost = l_primeprime * s_dot * s_dot + l_prime * s_dotdot;
-    double cost_2 = l_primeprime * s_dot * s_dot;
     max_cost = std::max(max_cost, std::fabs(cost));
-    max_cost_2 = std::max(max_cost_2, cost_2);
   }
   return max_cost;
 }
@@ -526,7 +543,17 @@ double TrajectoryEvaluator::CentripetalAccelerationCost(
     double v = lon_trajectory->Evaluate(1, t);
     PathPoint ref_point = PathMatcher::MatchToPath(*reference_line_, s);
     CHECK(ref_point.has_kappa());
-    double centripetal_acc = v * v * ref_point.kappa();
+
+    // JZ Added, to reduce cost when v is less than centripedal_speed_limit (def: 5.0 m/s)
+    // this could prevent planning zero speed trajectory when ADC faces a sharp u-turn
+    double centripetal_acc;
+    double speed_diff = FLAGS_centripedal_speed_limit - v;
+    if (speed_diff < 0) {
+      centripetal_acc = v * v * ref_point.kappa();
+    } else {
+      centripetal_acc = v * v * ref_point.kappa() / (speed_diff * speed_diff + 1.0);
+    }
+    
     centripetal_acc_sum += std::fabs(centripetal_acc);
     centripetal_acc_sqr_sum += centripetal_acc * centripetal_acc;
   }
@@ -544,7 +571,17 @@ double TrajectoryEvaluator::CentripetalAccelerationCost(
     double v = st_point.v();
     PathPoint ref_point = PathMatcher::MatchToPath(*reference_line_, s);
     CHECK(ref_point.has_kappa());
-    double centripetal_acc = v * v * ref_point.kappa();
+
+    // JZ Added, to reduce cost when v is less than centripedal_speed_limit (def: 5.0 m/s)
+    // this could prevent planning zero speed trajectory when ADC faces a sharp u-turn
+    double centripetal_acc;
+    double speed_diff = FLAGS_centripedal_speed_limit - v;
+    if (speed_diff < 0) {
+      centripetal_acc = v * v * ref_point.kappa();
+    } else {
+      centripetal_acc = v * v * ref_point.kappa() / (speed_diff * speed_diff + 1.0);
+    }
+
     centripetal_acc_sum += std::fabs(centripetal_acc);
     centripetal_acc_sqr_sum += centripetal_acc * centripetal_acc;
   }
@@ -562,7 +599,7 @@ std::vector<double> TrajectoryEvaluator::ComputeLongitudinalGuideVelocity(
   if (!planning_target.has_stop_point()) {
     PiecewiseAccelerationTrajectory1d lon_traj(init_s_[0], cruise_v);
     lon_traj.AppendSegment(0.0,
-        FLAGS_trajectory_time_length + + FLAGS_lattice_epsilon);
+        FLAGS_trajectory_time_length + FLAGS_lattice_epsilon);
 
     for (double t = 0.0; t < FLAGS_trajectory_time_length;
          t += FLAGS_trajectory_time_resolution) {
@@ -590,8 +627,8 @@ std::vector<double> TrajectoryEvaluator::ComputeLongitudinalGuideVelocity(
     std::shared_ptr<Trajectory1d> lon_ref_trajectory =
         PiecewiseBrakingTrajectoryGenerator::Generate(
             planning_target.stop_point().s(), init_s_[0],
-            planning_target.cruise_speed(),
-            init_s_[1], a_comfort, d_comfort,
+            planning_target.cruise_speed(), init_s_[1], 
+            a_comfort, d_comfort,
             FLAGS_trajectory_time_length + FLAGS_lattice_epsilon);
 
     for (double t = 0.0; t < FLAGS_trajectory_time_length;

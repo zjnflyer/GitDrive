@@ -45,6 +45,7 @@ class EndConditionSampler {
       const std::array<double, 3>& init_s,
       const std::array<double, 3>& init_d,
       PathDecision* path_decision,
+      const ReferenceLineInfo* ptr_reference_line_info,
       std::shared_ptr<PathTimeGraph> ptr_path_time_graph,
       std::shared_ptr<PredictionQuerier> ptr_prediction_querier,
       const PlanningConfig& config);
@@ -83,6 +84,7 @@ class EndConditionSampler {
   std::array<double, 3> init_d_;
   FeasibleRegion feasible_region_;
   PathDecision* path_decision_;
+  const ReferenceLineInfo* ptr_reference_line_info_;
   std::shared_ptr<PathTimeGraph> ptr_path_time_graph_;
   std::shared_ptr<PredictionQuerier> ptr_prediction_querier_;
 

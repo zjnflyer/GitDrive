@@ -44,6 +44,7 @@ class Trajectory1dGenerator {
       const std::array<double, 3>& lon_init_state,
       const std::array<double, 3>& lat_init_state,
       PathDecision* path_decision,
+      const ReferenceLineInfo* ptr_reference_line_info,
       std::shared_ptr<PathTimeGraph> ptr_path_time_graph,
       std::shared_ptr<PredictionQuerier> ptr_prediction_querier,
       const PlanningConfig& config);

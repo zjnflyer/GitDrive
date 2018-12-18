@@ -30,6 +30,8 @@
 #include "modules/planning/common/planning_gflags.h"
 #include "modules/planning/common/planning_context.h"
 
+#include "modules/common/configs/vehicle_config_helper.h"
+
 
 using namespace std;
 
@@ -42,12 +44,14 @@ using Condition = std::pair<State, double>;
 EndConditionSampler::EndConditionSampler(
     const State& init_s, const State& init_d,
     PathDecision* path_decision,
+    const ReferenceLineInfo* ptr_reference_line_info,
     std::shared_ptr<PathTimeGraph> ptr_path_time_graph,
     std::shared_ptr<PredictionQuerier> ptr_prediction_querier,
     const PlanningConfig& config)
     : init_s_(init_s),
       init_d_(init_d),
       path_decision_(path_decision),
+      ptr_reference_line_info_(ptr_reference_line_info),
       feasible_region_(init_s),
       ptr_path_time_graph_(std::move(ptr_path_time_graph)),
       ptr_prediction_querier_(std::move(ptr_prediction_querier)) {
@@ -56,13 +60,13 @@ EndConditionSampler::EndConditionSampler(
 
 void EndConditionSampler::Init(const PlanningConfig& config){
     // calibration parameter for SampleLatEndConditions()
-    LatEnd_d1 = config.latend_d1();
-    LatEnd_d2 = config.latend_d2();
-    LatEnd_d3 = config.latend_d3();
-    LatEnd_d4 = config.latend_d4();
-    LatEnd_d5 = config.latend_d5();
-    LatEnd_d6 = config.latend_d6();
-    LatEnd_d7 = config.latend_d7();
+    LatEnd_d1 = config.latend_d1(); // equal to 0.0
+    LatEnd_d2 = config.latend_d2(); // default left nudge value, positive
+    LatEnd_d3 = config.latend_d3(); // default right nudge value, negative
+    LatEnd_d4 = config.latend_d4(); // default sidepass value, positive
+    LatEnd_d5 = config.latend_d5(); // not in use
+    LatEnd_d6 = config.latend_d6(); // not in use
+    LatEnd_d7 = config.latend_d7(); // not in use
 
     LatEnd_s1 = config.latend_s1();
     LatEnd_s2 = config.latend_s2();
@@ -78,47 +82,79 @@ void EndConditionSampler::Init(const PlanningConfig& config){
 std::vector<Condition> EndConditionSampler::SampleLatEndConditions() const {
   std::vector<Condition> end_d_conditions;
 
-  // JZ Added, when SIDEPASS is requested, sample more lateral points to the left lane.
+    // JZ Added - use lane width to determine left/right nudge samples
+    double left_width = FLAGS_default_reference_line_width * 0.5;
+    double right_width = FLAGS_default_reference_line_width * 0.5;
+    ptr_reference_line_info_->reference_line().GetLaneWidth(
+      init_s_[0], &left_width, &right_width);
+
+    const auto& vehicle_config =
+        common::VehicleConfigHelper::instance()->GetConfig();
+    double half_ego_width = 0.5 * vehicle_config.vehicle_param().width();
+
+    double center_point = LatEnd_d1;
+    double left_nudge_sample = left_width - half_ego_width - 0.1;
+    if (left_nudge_sample < 0) {
+      left_nudge_sample = 0.0;
+    } else if (LatEnd_d2 > 1.0) {
+      left_nudge_sample = LatEnd_d2;
+    }
+    double right_nudge_sample = -(right_width - half_ego_width - 0.1);
+    if (right_nudge_sample > 0) {
+      right_nudge_sample = 0.0;
+    } else if (right_nudge_sample < -1.0) {
+      right_nudge_sample = LatEnd_d3;
+    }
+
+    AINFO << "left_width = " << left_width;
+    AINFO << "right_width = " << right_width;
+    AINFO << "left nudge sample = " << left_nudge_sample;
+    AINFO << "right nudge sample =" << right_nudge_sample;
+
+  // JZ Added, when SIDEPASS is requested, sample more lateral points to the left or right lane
+  // based on sidepass side information, determine samples to the left or right
   bool sidepass_requested = false;
+  ObjectSidePass sidepass;
   for (const auto* path_obstacle : path_decision_->path_obstacles().Items()) {
     if (path_obstacle->LateralDecision().has_sidepass()) {
       sidepass_requested = true;
+      sidepass = path_obstacle->LateralDecision().sidepass();
       break;
     } 
   }
 
-  if (sidepass_requested) {
-    auto* sidepass_status = GetPlanningStatus()->mutable_side_pass();
-    if (sidepass_status->pass_side()==ObjectSidePass::LEFT) {
-      std::array<double, 6> end_d_candidates = {LatEnd_d1, LatEnd_d2, LatEnd_d3, LatEnd_d4, LatEnd_d5, LatEnd_d6};
+  if ((sidepass_requested && sidepass.type()==ObjectSidePass::LEFT) || 
+      init_d_[0] > 2.0) {
+      AINFO << "LEFT sidepass requested, end_d_candidates added to the left";
+      std::array<double, 4> end_d_candidates = {center_point, left_nudge_sample, right_nudge_sample, LatEnd_d4};
       std::array<double, 4> end_s_candidates = {LatEnd_s1, LatEnd_s2, LatEnd_s3, LatEnd_s4};
       for (const auto& s : end_s_candidates) {
         for (const auto& d : end_d_candidates) {
           State end_d_state = {d, 0.0, 0.0};
           end_d_conditions.emplace_back(end_d_state, s);
         }
-      }  
-    } else if (sidepass_status->pass_side()==ObjectSidePass::RIGHT) {
-        std::array<double, 6> end_d_candidates = {LatEnd_d1, LatEnd_d2, LatEnd_d3, -LatEnd_d4, -LatEnd_d5, -LatEnd_d6};
+      }
+    } else if ((sidepass_requested && sidepass.type()==ObjectSidePass::RIGHT) ||
+                init_d_[0] < -2.0) {
+        AINFO << "RIGHT sidepass requested, end_d_candidates added to the right";
+        std::array<double, 4> end_d_candidates = {center_point, left_nudge_sample, right_nudge_sample, -LatEnd_d4};
         std::array<double, 4> end_s_candidates = {LatEnd_s1, LatEnd_s2, LatEnd_s3, LatEnd_s4};
         for (const auto& s : end_s_candidates) {
           for (const auto& d : end_d_candidates) {
             State end_d_state = {d, 0.0, 0.0};
             end_d_conditions.emplace_back(end_d_state, s);
           }
-        }        
-    }
-
-  } else {
-    std::array<double, 3> end_d_candidates = {LatEnd_d1, LatEnd_d2, LatEnd_d3};
-    std::array<double, 4> end_s_candidates = {LatEnd_s1, LatEnd_s2, LatEnd_s3, LatEnd_s4};    
-      for (const auto& s : end_s_candidates) {
-        for (const auto& d : end_d_candidates) {
-          State end_d_state = {d, 0.0, 0.0};
-          end_d_conditions.emplace_back(end_d_state, s);
         }
-      }
-  }
+      } else {
+          std::array<double, 3> end_d_candidates = {center_point, left_nudge_sample, right_nudge_sample};
+          std::array<double, 4> end_s_candidates = {LatEnd_s1, LatEnd_s2, LatEnd_s3, LatEnd_s4};
+          for (const auto& s : end_s_candidates) {
+            for (const auto& d : end_d_candidates) {
+              State end_d_state = {d, 0.0, 0.0};
+              end_d_conditions.emplace_back(end_d_state, s);
+            }
+          }
+        }
 
   return end_d_conditions;
 }
@@ -184,7 +220,7 @@ std::vector<Condition> EndConditionSampler::SampleLonEndConditionsForStopping(
   return end_s_conditions;
 }
 
-std::vector<Condition>
+std::vector<Condition> 
 EndConditionSampler::SampleLonEndConditionsForPathTimePoints() const {
   std::vector<Condition> end_s_conditions;
 
