@@ -169,7 +169,7 @@ void TrafficDecider::BuildPlanningTarget(
                      FLAGS_virtual_stop_wall_length / 2.0);
 */
 
-// JZ added - using the non-virtual stop point distance calculated in traffic rules
+// JZ Added - using the non-virtual stop point distance calculated in traffic rules
 
     stop_point.set_s(min_s + dist_s - front_edge_to_center);
     reference_line_info->SetStopPoint(stop_point);
